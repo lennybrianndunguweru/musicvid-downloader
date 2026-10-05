@@ -1,8 +1,7 @@
-
 services:
   - type: web
-    name: musicvid-1080p-downloader
+    name: musicvid-1080p-v3
     env: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    healthCheckPath: /
+    healthCheckPath: /api/status
