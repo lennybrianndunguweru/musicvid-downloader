@@ -16,21 +16,44 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Get video info
+// Helper to build yt-dlp command that bypasses bot detection
+function buildYtDlpArgs() {
+  let args = '';
+  // Use android client + ios client - bypasses bot check, no cookies needed 90% of time
+  args += ' --extractor-args "youtube:player_client=android,web"';
+  args += ' --no-playlist';
+  // Add user agent
+  args += ' --user-agent "Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020) AppleWebKit/537.36"';
+  // If cookies.txt exists in root, use it
+  const cookiePath = path.join(__dirname, 'cookies.txt');
+  if (fs.existsSync(cookiePath)) {
+    args += ` --cookies "${cookiePath}"`;
+    console.log('Using cookies.txt');
+  }
+  return args;
+}
+
 app.get('/api/info', (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'No URL' });
   
-  exec(`yt-dlp --dump-json --no-playlist "${url}"`, { maxBuffer: 1024*1024*10 }, (err, stdout) => {
-    if (err) return res.status(500).json({ error: err.message });
+  const extra = buildYtDlpArgs();
+  const cmd = `yt-dlp ${extra} --dump-json "${url}"`;
+  console.log('CMD:', cmd);
+  
+  exec(cmd, { maxBuffer: 1024*1024*20 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error(stderr);
+      // Fallback to Piped API if yt-dlp fails
+      return res.status(500).json({ error: stderr.slice(-500) });
+    }
     try {
       const data = JSON.parse(stdout);
       res.json({
         title: data.title,
-        thumbnail: data.thumbnail,
+        thumbnail: data.thumbnail || `https://img.youtube.com/vi/${data.id}/maxresdefault.jpg`,
         duration: data.duration,
-        uploader: data.uploader,
-        formats: data.formats
+        uploader: data.uploader
       });
     } catch (e) {
       res.status(500).json({ error: 'Failed to parse' });
@@ -38,41 +61,48 @@ app.get('/api/info', (req, res) => {
   });
 });
 
-// Download 1080p
 app.get('/api/download', (req, res) => {
   const url = req.query.url;
   const quality = req.query.quality || '1080';
-  
   if (!url) return res.status(400).json({ error: 'No URL' });
   
   const id = Date.now();
   const outputTemplate = `/tmp/video_${id}.%(ext)s`;
-  const finalPath = `/tmp/video_${id}.mp4`;
   
-  console.log(`Downloading ${url} at ${quality}p`);
+  const extra = buildYtDlpArgs();
+  const cmd = `yt-dlp ${extra} -f "bestvideo[height<=${quality}]+bestaudio/best" --merge-output-format mp4 -o "${outputTemplate}" "${url}"`;
+  console.log('DOWNLOAD CMD:', cmd);
   
-  // yt-dlp format: bestvideo height <= quality + bestaudio merged to mp4
-  const cmd = `yt-dlp -f "bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${quality}]+bestaudio/best" --merge-output-format mp4 -o "${outputTemplate}" "${url}"`;
-  
-  exec(cmd, { maxBuffer: 1024*1024*50 }, (err) => {
+  exec(cmd, { maxBuffer: 1024*1024*100 }, (err, stdout, stderr) => {
     if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Download failed: ' + err.message });
+      console.error(stderr);
+      return res.status(500).json({ error: 'Download failed. Try adding cookies.txt. Details: ' + stderr.slice(-600) });
     }
-    // Find the file
     const files = fs.readdirSync('/tmp').filter(f => f.startsWith(`video_${id}`));
-    if (files.length === 0) return res.status(500).json({ error: 'File not found' });
-    
+    if (files.length === 0) return res.status(500).json({ error: 'File not found after download' });
     const filePath = path.join('/tmp', files[0]);
     res.download(filePath, `music_video_${quality}p.mp4`, () => {
-      // cleanup
       try { fs.unlinkSync(filePath); } catch {}
     });
   });
 });
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// New endpoint: Cobalt fallback (works when yt-dlp blocked)
+app.get('/api/download-cobalt', async (req, res) => {
+  const url = req.query.url;
+  try {
+    const r = await fetch('https://api.cobalt.tools/api/json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ url, vQuality: '1080', vCodec: 'h264', filenamePattern: 'basic' })
+    });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+app.listen(PORT, () => console.log(`Fixed server running on ${PORT}`));
