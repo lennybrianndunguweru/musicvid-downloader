@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MUSICVID • 1080p</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black text-white min-h-screen flex flex-col items-center justify-center p-4">
+  <div class="max-w-2xl w-full">
+    <h1 class="text-4xl font-black text-center mb-2 bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">MUSICVID • 1080p</h1>
+    <p class="text-center text-zinc-400 mb-8">Paste YouTube link - get true 1080p MP4</p>
+    
+    <div class="bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
+      <div class="flex gap-2 mb-4">
+        <input id="url" placeholder="https://youtube.com/watch?v=..." class="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
+        <button onclick="getInfo()" class="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-xl font-bold">GET</button>
+      </div>
+      
+      <div class="flex gap-2 mb-6">
+        <button onclick="setQ('1080')" id="q1080" class="q-btn bg-purple-600 px-4 py-2 rounded-full text-sm font-bold">1080p</button>
+        <button onclick="setQ('720')" id="q720" class="q-btn bg-zinc-800 px-4 py-2 rounded-full text-sm">720p</button>
+        <button onclick="setQ('480')" id="q480" class="q-btn bg-zinc-800 px-4 py-2 rounded-full text-sm">480p</button>
+      </div>
+      
+      <div id="preview" class="hidden">
+        <img id="thumb" class="w-full rounded-xl mb-3 aspect-video object-cover">
+        <h3 id="title" class="font-bold"></h3>
+        <p id="uploader" class="text-sm text-zinc-400 mb-4"></p>
+        <button id="dlBtn" onclick="download()" class="w-full bg-white text-black py-4 rounded-xl font-black text-lg hover:bg-zinc-200">⬇ DOWNLOAD 1080p MP4</button>
+        <p id="status" class="text-center text-sm text-zinc-500 mt-3"></p>
+      </div>
+    </div>
+    
+    <p class="text-center text-xs text-zinc-600 mt-6">Powered by yt-dlp + ffmpeg • Hosted on Render Free</p>
+  </div>
+
+<script>
+let currentQuality = '1080';
+let currentUrl = '';
+function setQ(q){
+  currentQuality = q;
+  document.querySelectorAll('.q-btn').forEach(b=>b.className='q-btn bg-zinc-800 px-4 py-2 rounded-full text-sm');
+  document.getElementById('q'+q).className='q-btn bg-purple-600 px-4 py-2 rounded-full text-sm font-bold';
+  const btn = document.getElementById('dlBtn');
+  if(btn) btn.textContent = `⬇ DOWNLOAD ${q}p MP4`;
+}
+async function getInfo(){
+  const url = document.getElementById('url').value;
+  if(!url) return alert('Paste YouTube link');
+  currentUrl = url;
+  document.getElementById('status').textContent = 'Fetching info...';
+  document.getElementById('preview').classList.remove('hidden');
+  try{
+    const r = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+    const data = await r.json();
+    if(data.error) throw new Error(data.error);
+    document.getElementById('thumb').src = data.thumbnail;
+    document.getElementById('title').textContent = data.title;
+    document.getElementById('uploader').textContent = data.uploader;
+    document.getElementById('status').textContent = 'Ready to download';
+  }catch(e){
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+  }
+}
+async function download(){
+  const btn = document.getElementById('dlBtn');
+  btn.textContent = 'Downloading & Merging... (30-60s first time)';
+  btn.disabled = true;
+  document.getElementById('status').textContent = 'This may take 30-60s - merging 1080p video + audio...';
+  window.location.href = `/api/download?url=${encodeURIComponent(currentUrl)}&quality=${currentQuality}`;
+  setTimeout(()=>{
+    btn.textContent = `⬇ DOWNLOAD ${currentQuality}p MP4`;
+    btn.disabled = false;
+    document.getElementById('status').textContent = 'If download did not start, check popup blocker';
+  }, 5000);
+}
+</script>
+</body>
+</html>
